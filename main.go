@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/voutasaurus/env"
 )
@@ -27,6 +28,29 @@ func main() {
 	}
 	defer ln.Close()
 
+	pipe := func(out, in net.Conn) {
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go func() {
+			if _, err := io.Copy(out, in); err != nil {
+				logger.Fatalf("copy failed: %v", err)
+			}
+			wg.Done()
+		}()
+
+		go func() {
+			if _, err := io.Copy(in, out); err != nil {
+				logger.Fatalf("copy failed: %v", err)
+			}
+			wg.Done()
+		}()
+
+		wg.Wait()
+		out.Close()
+		in.Close()
+	}
+
 	for {
 		in, err := ln.Accept()
 		if err != nil {
@@ -38,16 +62,6 @@ func main() {
 			logger.Fatalf("dial failed: %v", err)
 		}
 
-		go func() {
-			if _, err := io.Copy(out, in); err != nil {
-				logger.Fatalf("copy failed: %v", err)
-			}
-		}()
-
-		go func() {
-			if _, err := io.Copy(in, out); err != nil {
-				logger.Fatalf("copy failed: %v", err)
-			}
-		}()
+		go pipe(in, out)
 	}
 }
